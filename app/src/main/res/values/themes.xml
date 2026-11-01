@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ClipForge" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#7C4DFF</item>
+        <item name="colorPrimaryVariant">#5E35B1</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:statusBarColor">#14141F</item>
+        <item name="android:windowBackground">#14141F</item>
+    </style>
+</resources>

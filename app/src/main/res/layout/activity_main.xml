@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="8dp"
         android:text="Your AI video clipping studio"
         android:textColor="#AAAAAA"
         android:textSize="14sp" />
@@ -41,7 +41,6 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
         android:orientation="horizontal">
 
         <EditText
@@ -72,6 +71,41 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Cut Clip" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnCapEn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Captions English" />
+
+        <Button
+            android:id="@+id/btnCapHi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Captions Hindi" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="110dp"
+        android:layout_marginTop="4dp"
+        android:background="#1E1E2C">
+
+        <TextView
+            android:id="@+id/tvCaptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="Captions yahan dikhenge"
+            android:textColor="#FFFFFF" />
+    </ScrollView>
 
     <Button
         android:id="@+id/btnPick"

@@ -528,7 +528,7 @@ val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
         while (i < words.size) {
             var j = i
             while (j + 1 < words.size && (j - i) < 5 && words[j + 1].start - words[j].end < 0.8) j++
-            val line = words.subList(i, j + 1).joinToString(" ") { it.text }
+            val line = words.subList(i, j + 1).joinToString(" ") { toRoman(it.text) }
             sb.append(idx).append('\n')
             sb.append(fmtTime(words[i].start + offsetSec)).append(" --> ")
                 .append(fmtTime(words[j].end + offsetSec)).append('\n')
@@ -582,6 +582,51 @@ val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
             return 0f
         }
         }
+            private fun toRoman(s: String): String {
+        val vowels = mapOf(
+            'अ' to "a", 'आ' to "aa", 'इ' to "i", 'ई' to "ee", 'उ' to "u", 'ऊ' to "oo",
+            'ए' to "e", 'ऐ' to "ai", 'ओ' to "o", 'औ' to "au", 'ऑ' to "o", 'ऋ' to "ri"
+        )
+        val matras = mapOf(
+            'ा' to "aa", 'ि' to "i", 'ी' to "ee", 'ु' to "u", 'ू' to "oo",
+            'े' to "e", 'ै' to "ai", 'ो' to "o", 'ौ' to "au", 'ॉ' to "o", 'ृ' to "ri"
+        )
+        val cons = mapOf(
+            'क' to "k", 'ख' to "kh", 'ग' to "g", 'घ' to "gh", 'ङ' to "n",
+            'च' to "ch", 'छ' to "chh", 'ज' to "j", 'झ' to "jh", 'ञ' to "n",
+            'ट' to "t", 'ठ' to "th", 'ड' to "d", 'ढ' to "dh", 'ण' to "n",
+            'त' to "t", 'थ' to "th", 'द' to "d", 'ध' to "dh", 'न' to "n",
+            'प' to "p", 'फ' to "f", 'ब' to "b", 'भ' to "bh", 'म' to "m",
+            'य' to "y", 'र' to "r", 'ल' to "l", 'व' to "v", 'श' to "sh",
+            'ष' to "sh", 'स' to "s", 'ह' to "h"
+        )
+        val sb = StringBuilder()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            val next = if (i + 1 < s.length) s[i + 1] else ' '
+            when {
+                cons.containsKey(c) -> {
+                    sb.append(cons[c])
+                    when {
+                        matras.containsKey(next) -> { sb.append(matras[next]); i++ }
+                        next == '्' -> { i++ }
+                        else -> {
+                            val atEnd = i + 1 >= s.length || s[i + 1] == ' '
+                            if (!atEnd) sb.append("a")
+                        }
+                    }
+                }
+                vowels.containsKey(c) -> sb.append(vowels[c])
+                c == 'ं' || c == 'ँ' -> sb.append("n")
+                c == 'ः' -> sb.append("h")
+                c == '़' || c == '्' -> {}
+                else -> sb.append(c)
+            }
+            i++
+        }
+        return sb.toString()
+            }
     override fun onStop() {
         super.onStop()
         player?.release()

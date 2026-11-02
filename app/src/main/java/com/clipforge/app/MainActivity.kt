@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -33,6 +34,9 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.ZipInputStream
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
 
 @androidx.annotation.OptIn(UnstableApi::class)
 class MainActivity : AppCompatActivity() {
@@ -42,6 +46,19 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var busy = false
 
     private data class Word(val text: String, val start: Double, val end: Double)
+    private data class Pick(val start: Long, val end: Long, val score: Double)
+
+    private val HI_NAME = "vosk-model-small-hi-0.22"
+    private val HI_URL = "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip"
+    private val EN_NAME = "vosk-model-small-en-us-0.15"
+    private val EN_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+
+    private val keywords = setOf(
+        "क्या", "क्यों", "कैसे", "देखो", "सुनो", "वाओ", "सीक्रेट", "राज", "सच",
+        "पैसे", "पैसा", "ज़रूर", "जरूर", "कभी", "सबसे", "बहुत", "गलती", "फ्री", "असली",
+        "wow", "secret", "never", "free", "money", "mistake", "truth", "amazing",
+        "why", "how", "best", "crazy", "stop", "look"
+    )
 
     private val pickVideo =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -57,20 +74,9 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnPick).setOnClickListener { pickVideo.launch("video/*") }
         findViewById<Button>(R.id.btnCut).setOnClickListener { cutClip() }
-        findViewById<Button>(R.id.btnCapEn).setOnClickListener {
-            makeCaptions(
-                "vosk-model-small-en-us-0.15",
-                "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
-                "en"
-            )
-        }
-        findViewById<Button>(R.id.btnCapHi).setOnClickListener {
-            makeCaptions(
-                "vosk-model-small-hi-0.22",
-                "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
-                "hi"
-            )
-        }
+        findViewById<Button>(R.id.btnAuto).setOnClickListener { autoClips() }
+        findViewById<Button>(R.id.btnCapEn).setOnClickListener { makeCaptions(EN_NAME, EN_URL, "en") }
+        findViewById<Button>(R.id.btnCapHi).setOnClickListener { makeCaptions(HI_NAME, HI_URL, "hi") }
     }
 
     private fun playVideo(uri: Uri) {
@@ -85,23 +91,8 @@ class MainActivity : AppCompatActivity() {
             "Video chuna gaya: " + (uri.lastPathSegment ?: "")
     }
 
-    // ---------------- CUT CLIP ----------------
-    private fun cutClip() {
-        val uri = selectedUri
-        if (uri == null) {
-            Toast.makeText(this, "Pehle video chuno", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val startSec = findViewById<EditText>(R.id.etStart).text.toString().toLongOrNull() ?: 0L
-        val endSec = findViewById<EditText>(R.id.etEnd).text.toString().toLongOrNull() ?: 0L
-        if (endSec <= startSec) {
-            Toast.makeText(this, "End time Start se bada hona chahiye", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val info = findViewById<TextView>(R.id.videoInfo)
-        info.text = "Clip ban rahi hai, ruko..."
-
+    // ---------------- CUT ----------------
+    private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
         val clipping = MediaItem.ClippingConfiguration.Builder()
             .setStartPositionMs(startSec * 1000)
             .setEndPositionMs(endSec * 1000)
@@ -116,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         val transformer = Transformer.Builder(this)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                    info.text = "Clip taiyar! " + saveToGallery(outFile)
+                    done(saveToGallery(outFile))
                 }
 
                 override fun onError(
@@ -124,11 +115,28 @@ class MainActivity : AppCompatActivity() {
                     exportResult: ExportResult,
                     exportException: ExportException
                 ) {
-                    info.text = "Error: " + exportException.message
+                    done("Error: " + exportException.message)
                 }
             })
             .build()
         transformer.start(edited, outFile.absolutePath)
+    }
+
+    private fun cutClip() {
+        val uri = selectedUri
+        if (uri == null) {
+            Toast.makeText(this, "Pehle video chuno", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val startSec = findViewById<EditText>(R.id.etStart).text.toString().toLongOrNull() ?: 0L
+        val endSec = findViewById<EditText>(R.id.etEnd).text.toString().toLongOrNull() ?: 0L
+        if (endSec <= startSec) {
+            Toast.makeText(this, "End time Start se bada hona chahiye", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val info = findViewById<TextView>(R.id.videoInfo)
+        info.text = "Clip ban rahi hai, ruko..."
+        cutRange(uri, startSec, endSec) { info.text = "Clip taiyar! $it" }
     }
 
     private fun saveToGallery(file: File): String {
@@ -152,6 +160,102 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             "Save error: " + e.message
         }
+    }
+
+    // ---------------- AUTO CLIPS ----------------
+    private fun autoClips() {
+        val uri = selectedUri
+        if (uri == null) {
+            Toast.makeText(this, "Pehle video chuno", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (busy) {
+            Toast.makeText(this, "Pehle wala kaam chal raha hai", Toast.LENGTH_SHORT).show()
+            return
+        }
+        busy = true
+        Thread {
+            try {
+                val mmr = MediaMetadataRetriever()
+                mmr.setDataSource(this, uri)
+                val durMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+                mmr.release()
+                val totalSec = min(durMs / 1000, 600L)
+                if (totalSec < 5) throw Exception("Video bahut chhoti hai")
+
+                val modelDir = ensureModel(HI_NAME, HI_URL)
+                setCap("Model load ho raha hai...")
+                val energy = DoubleArray((totalSec + 2).toInt())
+                val counts = LongArray((totalSec + 2).toInt())
+                val words = transcribe(uri, 0, totalSec, modelDir, energy, counts)
+
+                val picks = pickBest(words, energy, counts, totalSec)
+                val sb = StringBuilder("Top hisse mile:\n")
+                picks.forEachIndexed { i, p ->
+                    sb.append("${i + 1}) ${p.start}s - ${p.end}s  (score ${"%.2f".format(p.score)})\n")
+                }
+                setCap(sb.toString())
+                runOnUiThread { cutQueue(uri, picks, 0) }
+            } catch (e: Throwable) {
+                setCap("Error: " + e.message)
+            } finally {
+                busy = false
+            }
+        }.start()
+    }
+
+    private fun cutQueue(uri: Uri, picks: List<Pick>, i: Int) {
+        val info = findViewById<TextView>(R.id.videoInfo)
+        if (i >= picks.size) {
+            info.text = "Auto Clips poori hui! ${picks.size} Shorts Gallery > Movies/ClipForge mein hain"
+            return
+        }
+        info.text = "Clip ${i + 1}/${picks.size} ban rahi hai..."
+        cutRange(uri, picks[i].start, picks[i].end) { cutQueue(uri, picks, i + 1) }
+    }
+
+    private fun pickBest(
+        words: List<Word>, energy: DoubleArray, counts: LongArray, totalSec: Long
+    ): List<Pick> {
+        val len = if (totalSec >= 40) 30L else totalSec
+        if (len == totalSec) return listOf(Pick(0, totalSec, 1.0))
+
+        val rms = DoubleArray(energy.size) { if (counts[it] > 0) sqrt(energy[it] / counts[it]) else 0.0 }
+        val cands = ArrayList<Pick>()
+        var maxE = 1e-9
+        var maxW = 1e-9
+        val eList = ArrayList<Double>()
+        val wList = ArrayList<Double>()
+        val kList = ArrayList<Double>()
+        val starts = ArrayList<Long>()
+
+        var s = 0L
+        while (s + len <= totalSec) {
+            var e = 0.0
+            for (t in s until s + len) e += rms[t.toInt()]
+            e /= len
+            val inWin = words.filter { it.start >= s && it.start < s + len }
+            val w = inWin.size / len.toDouble()
+            val k = inWin.count { keywords.contains(it.text.lowercase()) }.toDouble()
+            maxE = max(maxE, e)
+            maxW = max(maxW, w)
+            eList.add(e); wList.add(w); kList.add(min(k, 3.0) / 3.0)
+            starts.add(s)
+            s += 5
+        }
+        for (i in starts.indices) {
+            val score = 0.4 * (eList[i] / maxE) + 0.3 * (wList[i] / maxW) + 0.3 * kList[i]
+            cands.add(Pick(starts[i], starts[i] + len, score))
+        }
+        cands.sortByDescending { it.score }
+
+        val chosen = ArrayList<Pick>()
+        for (c in cands) {
+            if (chosen.size >= 3) break
+            if (chosen.none { c.start < it.end && c.end > it.start }) chosen.add(c)
+        }
+        return chosen.sortedBy { it.start }
     }
 
     // ---------------- CAPTIONS ----------------
@@ -180,7 +284,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val modelDir = ensureModel(modelName, modelUrl)
                 setCap("Model load ho raha hai...")
-                val words = transcribe(uri, startSec, endSec, modelDir)
+                val words = transcribe(uri, startSec, endSec, modelDir, null, null)
                 if (words.isEmpty()) {
                     setCap("Koi bolne wali awaaz nahi mili. Dusri language try karo ya time range badlo.")
                 } else {
@@ -249,7 +353,10 @@ class MainActivity : AppCompatActivity() {
         return modelDir
     }
 
-    private fun transcribe(uri: Uri, startSec: Long, endSec: Long, modelDir: File): List<Word> {
+    private fun transcribe(
+        uri: Uri, startSec: Long, endSec: Long, modelDir: File,
+        energy: DoubleArray?, counts: LongArray?
+    ): List<Word> {
         val words = ArrayList<Word>()
         val model = Model(modelDir.absolutePath)
         val rec = Recognizer(model, 16000.0f)
@@ -329,10 +436,20 @@ class MainActivity : AppCompatActivity() {
                 val outBuf = ByteBuffer.allocate(((frames / ratio).toInt() + 4) * 2)
                     .order(ByteOrder.LITTLE_ENDIAN)
                 val mono = ShortArray(frames)
+                var sumSq = 0.0
                 for (f in 0 until frames) {
                     var sum = 0
                     for (c in 0 until ch) sum += sb.get(f * ch + c).toInt()
-                    mono[f] = (sum / ch).toShort()
+                    val v = (sum / ch)
+                    mono[f] = v.toShort()
+                    sumSq += v.toDouble() * v.toDouble()
+                }
+                if (energy != null && counts != null && frames > 0) {
+                    val sec = (info.presentationTimeUs / 1_000_000L).toInt()
+                    if (sec in energy.indices) {
+                        energy[sec] += sumSq
+                        counts[sec] += frames.toLong()
+                    }
                 }
                 while (pos < frames) {
                     outBuf.putShort(mono[pos.toInt()])
@@ -380,13 +497,4 @@ class MainActivity : AppCompatActivity() {
         val ms = (t * 1000).toLong()
         return String.format(
             "%02d:%02d:%02d,%03d",
-            ms / 3600000, (ms / 60000) % 60, (ms / 1000) % 60, ms % 1000
-        )
-    }
-
-    override fun onStop() {
-        super.onStop()
-        player?.release()
-        player = null
-    }
-}
+            m

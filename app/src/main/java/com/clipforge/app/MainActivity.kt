@@ -71,7 +71,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
         findViewById<Button>(R.id.btnPick).setOnClickListener { pickVideo.launch("video/*") }
         findViewById<Button>(R.id.btnCut).setOnClickListener { cutClip() }
         findViewById<Button>(R.id.btnAuto).setOnClickListener { autoClips() }
@@ -87,23 +86,17 @@ class MainActivity : AppCompatActivity() {
         exo.setMediaItem(MediaItem.fromUri(uri))
         exo.prepare()
         exo.playWhenReady = true
-        findViewById<TextView>(R.id.videoInfo).text =
-            "Video chuna gaya: " + (uri.lastPathSegment ?: "")
+        findViewById<TextView>(R.id.videoInfo).text = "Video chuna gaya: " + (uri.lastPathSegment ?: "")
     }
 
-    // ---------------- CUT ----------------
     private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
         val clipping = MediaItem.ClippingConfiguration.Builder()
             .setStartPositionMs(startSec * 1000)
             .setEndPositionMs(endSec * 1000)
             .build()
-        val mediaItem = MediaItem.Builder()
-            .setUri(uri)
-            .setClippingConfiguration(clipping)
-            .build()
+        val mediaItem = MediaItem.Builder().setUri(uri).setClippingConfiguration(clipping).build()
         val edited = EditedMediaItem.Builder(mediaItem).build()
         val outFile = File(cacheDir, "clip_${System.currentTimeMillis()}.mp4")
-
         val transformer = Transformer.Builder(this)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
@@ -128,15 +121,15 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Pehle video chuno", Toast.LENGTH_SHORT).show()
             return
         }
-        val startSec = findViewById<EditText>(R.id.etStart).text.toString().toLongOrNull() ?: 0L
-        val endSec = findViewById<EditText>(R.id.etEnd).text.toString().toLongOrNull() ?: 0L
-        if (endSec <= startSec) {
+        val s = findViewById<EditText>(R.id.etStart).text.toString().toLongOrNull() ?: 0L
+        val e = findViewById<EditText>(R.id.etEnd).text.toString().toLongOrNull() ?: 0L
+        if (e <= s) {
             Toast.makeText(this, "End time Start se bada hona chahiye", Toast.LENGTH_SHORT).show()
             return
         }
         val info = findViewById<TextView>(R.id.videoInfo)
         info.text = "Clip ban rahi hai, ruko..."
-        cutRange(uri, startSec, endSec) { info.text = "Clip taiyar! $it" }
+        cutRange(uri, s, e) { info.text = "Clip taiyar! $it" }
     }
 
     private fun saveToGallery(file: File): String {
@@ -157,12 +150,11 @@ class MainActivity : AppCompatActivity() {
             } else {
                 "Save nahi ho paayi"
             }
-        } catch (e: Exception) {
-            "Save error: " + e.message
+        } catch (ex: Exception) {
+            "Save error: " + ex.message
         }
     }
 
-    // ---------------- AUTO CLIPS ----------------
     private fun autoClips() {
         val uri = selectedUri
         if (uri == null) {
@@ -193,12 +185,12 @@ class MainActivity : AppCompatActivity() {
                 val picks = pickBest(words, energy, counts, totalSec)
                 val sb = StringBuilder("Top hisse mile:\n")
                 picks.forEachIndexed { i, p ->
-                    sb.append("${i + 1}) ${p.start}s - ${p.end}s  (score ${"%.2f".format(p.score)})\n")
+                    sb.append("${i + 1}) ${p.start}s - ${p.end}s (score ${"%.2f".format(p.score)})\n")
                 }
                 setCap(sb.toString())
                 runOnUiThread { cutQueue(uri, picks, 0) }
-            } catch (e: Throwable) {
-                setCap("Error: " + e.message)
+            } catch (ex: Throwable) {
+                setCap("Error: " + ex.message)
             } finally {
                 busy = false
             }
@@ -222,7 +214,6 @@ class MainActivity : AppCompatActivity() {
         if (len == totalSec) return listOf(Pick(0, totalSec, 1.0))
 
         val rms = DoubleArray(energy.size) { if (counts[it] > 0) sqrt(energy[it] / counts[it]) else 0.0 }
-        val cands = ArrayList<Pick>()
         var maxE = 1e-9
         var maxW = 1e-9
         val eList = ArrayList<Double>()
@@ -240,10 +231,13 @@ class MainActivity : AppCompatActivity() {
             val k = inWin.count { keywords.contains(it.text.lowercase()) }.toDouble()
             maxE = max(maxE, e)
             maxW = max(maxW, w)
-            eList.add(e); wList.add(w); kList.add(min(k, 3.0) / 3.0)
+            eList.add(e)
+            wList.add(w)
+            kList.add(min(k, 3.0) / 3.0)
             starts.add(s)
             s += 5
         }
+        val cands = ArrayList<Pick>()
         for (i in starts.indices) {
             val score = 0.4 * (eList[i] / maxE) + 0.3 * (wList[i] / maxW) + 0.3 * kList[i]
             cands.add(Pick(starts[i], starts[i] + len, score))
@@ -258,7 +252,6 @@ class MainActivity : AppCompatActivity() {
         return chosen.sortedBy { it.start }
     }
 
-    // ---------------- CAPTIONS ----------------
     private fun setCap(text: String) {
         runOnUiThread { findViewById<TextView>(R.id.tvCaptions).text = text }
     }
@@ -286,15 +279,15 @@ class MainActivity : AppCompatActivity() {
                 setCap("Model load ho raha hai...")
                 val words = transcribe(uri, startSec, endSec, modelDir, null, null)
                 if (words.isEmpty()) {
-                    setCap("Koi bolne wali awaaz nahi mili. Dusri language try karo ya time range badlo.")
+                    setCap("Koi bolne wali awaaz nahi mili.")
                 } else {
                     val srt = buildSrt(words, startSec.toDouble())
                     val f = File(getExternalFilesDir(null), "captions_${lang}_${System.currentTimeMillis()}.srt")
                     f.writeText(srt)
                     setCap(srt + "\n\n[SRT file: " + f.absolutePath + "]")
                 }
-            } catch (e: Throwable) {
-                setCap("Error: " + e.message)
+            } catch (ex: Throwable) {
+                setCap("Error: " + ex.message)
             } finally {
                 busy = false
             }
@@ -440,7 +433,7 @@ class MainActivity : AppCompatActivity() {
                 for (f in 0 until frames) {
                     var sum = 0
                     for (c in 0 until ch) sum += sb.get(f * ch + c).toInt()
-                    val v = (sum / ch)
+                    val v = sum / ch
                     mono[f] = v.toShort()
                     sumSq += v.toDouble() * v.toDouble()
                 }
@@ -457,9 +450,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 pos -= frames
                 if (outBuf.position() > 0) {
-                    val bytes = outBuf.array()
-                    val len = outBuf.position()
-                    if (rec.acceptWaveForm(bytes, len)) collect(rec.result)
+                    if (rec.acceptWaveForm(outBuf.array(), outBuf.position())) collect(rec.result)
                 }
                 codec.releaseOutputBuffer(oi, false)
                 if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
@@ -497,4 +488,14 @@ class MainActivity : AppCompatActivity() {
         val ms = (t * 1000).toLong()
         return String.format(
             "%02d:%02d:%02d,%03d",
-            m
+            ms / 3600000, (ms / 60000) % 60, (ms / 1000) % 60, ms % 1000
+        )
+    }
+
+    override fun onStop() {
+        super.onStop()
+        player?.release()
+        player = null
+    }
+}
+// END OF FILE

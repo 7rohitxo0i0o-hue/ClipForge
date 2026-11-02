@@ -110,7 +110,7 @@ private fun cutRangeCrop(uri: Uri, startSec: Long, endSec: Long, cx: Float, done
         val effects = androidx.media3.transformer.Effects(
     emptyList(),
     listOf<Effect>(
-        androidx.media3.effect.Crop(cx - 0.316f, cx + 0.316f, -1f, 1f)
+        androidx.media3.effect.Crop(cx - 0.4f, cx + 0.4f, -1f, 1f)
     )
 )
 val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()

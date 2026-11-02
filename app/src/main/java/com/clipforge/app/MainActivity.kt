@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.Effect
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.ExportException
@@ -95,7 +96,13 @@ class MainActivity : AppCompatActivity() {
             .setEndPositionMs(endSec * 1000)
             .build()
         val mediaItem = MediaItem.Builder().setUri(uri).setClippingConfiguration(clipping).build()
-        val edited = EditedMediaItem.Builder(mediaItem).build()
+        val effects = androidx.media3.transformer.Effects(
+    emptyList(),
+    listOf<Effect>(
+        androidx.media3.effect.Crop(-0.316f, 0.316f, -1f, 1f)
+    )
+)
+val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
         val outFile = File(cacheDir, "clip_${System.currentTimeMillis()}.mp4")
         val transformer = Transformer.Builder(this)
             .addListener(object : Transformer.Listener {

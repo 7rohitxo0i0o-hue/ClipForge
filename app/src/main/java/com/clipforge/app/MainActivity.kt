@@ -19,6 +19,20 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Effect
+import android.graphics.Color
+import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.MetricAffectingSpan
+import androidx.core.content.res.ResourcesCompat
+import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.OverlaySettings
+import androidx.media3.effect.TextOverlay
+import androidx.media3.effect.TextureOverlay
+import com.google.common.collect.ImmutableList
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -94,49 +108,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.videoInfo).text = "Video chuna gaya: " + (uri.lastPathSegment ?: "")
     }
 
-    private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
-    Thread {
-        val items = ArrayList<EditedMediaItem>()
-        var s = startSec
-        while (s < endSec) {
-            val e = minOf(s + 5, endSec)
-            val cx = findFaceX(uri, s, e)
-            val clipping = MediaItem.ClippingConfiguration.Builder()
-                .setStartPositionMs(s * 1000)
-                .setEndPositionMs(e * 1000)
-                .build()
-            val mi = MediaItem.Builder().setUri(uri).setClippingConfiguration(clipping).build()
-            val fx = androidx.media3.transformer.Effects(
-                emptyList(),
-                listOf<Effect>(androidx.media3.effect.Crop(cx - 0.4f, cx + 0.4f, -1f, 1f))
-            )
-            items.add(EditedMediaItem.Builder(mi).setEffects(fx).build())
-            s = e
+        private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
+        Thread {
+            val cx = findFaceX(uri, startSec, endSec)
+            pendingCaps = try {
+                val md = ensureModel(HI_NAME, HI_URL)
+                buildCaps(transcribe(uri, startSec, endSec, md, null, null))
+            } catch (e: Throwable) {
+                emptyList()
+            }
+            runOnUiThread { cutRangeCrop(uri, startSec, endSec, cx, done) }
+        }.start()
         }
-        val outFile = File(cacheDir, "clip_${System.currentTimeMillis()}.mp4")
-        val comp = Composition.Builder(
-            listOf(androidx.media3.transformer.EditedMediaItemSequence(items))
-        ).build()
-        runOnUiThread {
-            val transformer = Transformer.Builder(this)
-                .addListener(object : Transformer.Listener {
-                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        done(saveToGallery(outFile))
-                    }
-
-                    override fun onError(
-                        composition: Composition,
-                        exportResult: ExportResult,
-                        exportException: ExportException
-                    ) {
-                        done("Error: " + exportException.message)
-                    }
-                })
-                .build()
-            transformer.start(comp, outFile.absolutePath)
-        }
-    }.start()
-    }
 
 private fun cutRangeCrop(uri: Uri, startSec: Long, endSec: Long, cx: Float, done: (String) -> Unit) {
         val clipping = MediaItem.ClippingConfiguration.Builder()
@@ -144,12 +127,13 @@ private fun cutRangeCrop(uri: Uri, startSec: Long, endSec: Long, cx: Float, done
             .setEndPositionMs(endSec * 1000)
             .build()
         val mediaItem = MediaItem.Builder().setUri(uri).setClippingConfiguration(clipping).build()
-        val effects = androidx.media3.transformer.Effects(
-    emptyList(),
-    listOf<Effect>(
-        androidx.media3.effect.Crop(cx - 0.4f, cx + 0.4f, -1f, 1f)
-    )
-)
+                val tf = ResourcesCompat.getFont(this, R.font.anton_regular)
+        val vEffects = ArrayList<Effect>()
+        vEffects.add(androidx.media3.effect.Crop(cx - 0.4f, cx + 0.4f, -1f, 1f))
+        if (pendingCaps.isNotEmpty()) {
+            vEffects.add(OverlayEffect(ImmutableList.of<TextureOverlay>(CapOverlay(pendingCaps, tf))))
+        }
+        val effects = androidx.media3.transformer.Effects(emptyList(), vEffects)
 val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
         val outFile = File(cacheDir, "clip_${System.currentTimeMillis()}.mp4")
         val transformer = Transformer.Builder(this)
@@ -627,6 +611,48 @@ val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
         }
         return sb.toString()
             }
+                private data class Cap(val startUs: Long, val endUs: Long, val text: String)
+
+    private var pendingCaps: List<Cap> = emptyList()
+
+    private fun buildCaps(words: List<Word>): List<Cap> {
+        val out = ArrayList<Cap>()
+        var i = 0
+        while (i < words.size) {
+            var j = i
+            while (j + 1 < words.size && (j - i) < 3 && words[j + 1].start - words[j].end < 0.6) j++
+            val text = words.subList(i, j + 1).joinToString(" ") { toRoman(it.text) }.uppercase()
+            out.add(Cap((words[i].start * 1_000_000).toLong(), (words[j].end * 1_000_000).toLong(), text))
+            i = j + 1
+        }
+        return out
+    }
+
+    private class FontSpan(private val tf: Typeface) : MetricAffectingSpan() {
+        override fun updateDrawState(p: TextPaint) { p.typeface = tf }
+        override fun updateMeasureState(p: TextPaint) { p.typeface = tf }
+    }
+
+    private inner class CapOverlay(
+        private val caps: List<Cap>,
+        private val tf: Typeface?
+    ) : TextOverlay() {
+        override fun getText(presentationTimeUs: Long): SpannableString {
+            val c = caps.firstOrNull { presentationTimeUs >= it.startUs && presentationTimeUs <= it.endUs }
+            val s = SpannableString(c?.text ?: " ")
+            val n = s.length
+            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, n, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            s.setSpan(AbsoluteSizeSpan(64, false), 0, n, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (tf != null) s.setSpan(FontSpan(tf), 0, n, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            return s
+        }
+
+        override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+            return OverlaySettings.Builder()
+                .setBackgroundFrameAnchor(0f, -0.25f)
+                .build()
+        }
+    }
     override fun onStop() {
         super.onStop()
         player?.release()

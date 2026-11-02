@@ -19,6 +19,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Effect
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.ExportException
@@ -91,6 +95,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
+    Thread {
+        val cx = findFaceX(uri, startSec, endSec)
+        runOnUiThread { cutRangeCrop(uri, startSec, endSec, cx, done) }
+    }.start()
+}
+
+private fun cutRangeCrop(uri: Uri, startSec: Long, endSec: Long, cx: Float, done: (String) -> Unit) {
         val clipping = MediaItem.ClippingConfiguration.Builder()
             .setStartPositionMs(startSec * 1000)
             .setEndPositionMs(endSec * 1000)
@@ -99,7 +110,7 @@ class MainActivity : AppCompatActivity() {
         val effects = androidx.media3.transformer.Effects(
     emptyList(),
     listOf<Effect>(
-        androidx.media3.effect.Crop(-0.316f, 0.316f, -1f, 1f)
+        androidx.media3.effect.Crop(cx - 0.316f, cx + 0.316f, -1f, 1f)
     )
 )
 val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
@@ -499,6 +510,41 @@ val edited = EditedMediaItem.Builder(mediaItem).setEffects(effects).build()
         )
     }
 
+        private fun findFaceX(uri: Uri, startSec: Long, endSec: Long): Float {
+        try {
+            val mmr = MediaMetadataRetriever()
+            mmr.setDataSource(this, uri)
+            val detector = FaceDetection.getClient(
+                FaceDetectorOptions.Builder()
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .build()
+            )
+            var sum = 0f
+            var n = 0
+            var t = startSec
+            while (t < endSec) {
+                val bmp = mmr.getFrameAtTime(
+                    t * 1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                )
+                if (bmp != null) {
+                    val faces = Tasks.await(detector.process(InputImage.fromBitmap(bmp, 0)))
+                    val big = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                    if (big != null) {
+                        sum += big.boundingBox.centerX().toFloat() / bmp.width
+                        n++
+                    }
+                }
+                t += 2
+            }
+            mmr.release()
+            detector.close()
+            if (n == 0) return 0f
+            val avg = sum / n
+            return (avg * 2f - 1f).coerceIn(-0.684f, 0.684f)
+        } catch (e: Throwable) {
+            return 0f
+        }
+        }
     override fun onStop() {
         super.onStop()
         player?.release()

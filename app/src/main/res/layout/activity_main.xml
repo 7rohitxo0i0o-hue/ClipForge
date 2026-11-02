@@ -67,6 +67,12 @@
     </LinearLayout>
 
     <Button
+        android:id="@+id/btnAuto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Auto Clips (Viral Shorts)" />
+
+    <Button
         android:id="@+id/btnCut"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -94,7 +100,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="110dp"
+        android:layout_height="130dp"
         android:layout_marginTop="4dp"
         android:background="#1E1E2C">
 

@@ -48,4 +48,5 @@ dependencies {
     implementation("androidx.media3:media3-effect:1.4.1")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
     implementation("com.alphacephei:vosk-android:0.3.47")
+implementation("com.google.mlkit:face-detection:16.1.6")
 }

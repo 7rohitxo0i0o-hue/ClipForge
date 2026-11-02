@@ -96,10 +96,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun cutRange(uri: Uri, startSec: Long, endSec: Long, done: (String) -> Unit) {
     Thread {
-        val cx = findFaceX(uri, startSec, endSec)
-        runOnUiThread { cutRangeCrop(uri, startSec, endSec, cx, done) }
+        val items = ArrayList<EditedMediaItem>()
+        var s = startSec
+        while (s < endSec) {
+            val e = minOf(s + 5, endSec)
+            val cx = findFaceX(uri, s, e)
+            val clipping = MediaItem.ClippingConfiguration.Builder()
+                .setStartPositionMs(s * 1000)
+                .setEndPositionMs(e * 1000)
+                .build()
+            val mi = MediaItem.Builder().setUri(uri).setClippingConfiguration(clipping).build()
+            val fx = androidx.media3.transformer.Effects(
+                emptyList(),
+                listOf<Effect>(androidx.media3.effect.Crop(cx - 0.4f, cx + 0.4f, -1f, 1f))
+            )
+            items.add(EditedMediaItem.Builder(mi).setEffects(fx).build())
+            s = e
+        }
+        val outFile = File(cacheDir, "clip_${System.currentTimeMillis()}.mp4")
+        val comp = Composition.Builder(
+            listOf(androidx.media3.transformer.EditedMediaItemSequence(items))
+        ).build()
+        runOnUiThread {
+            val transformer = Transformer.Builder(this)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        done(saveToGallery(outFile))
+                    }
+
+                    override fun onError(
+                        composition: Composition,
+                        exportResult: ExportResult,
+                        exportException: ExportException
+                    ) {
+                        done("Error: " + exportException.message)
+                    }
+                })
+                .build()
+            transformer.start(comp, outFile.absolutePath)
+        }
     }.start()
-}
+    }
 
 private fun cutRangeCrop(uri: Uri, startSec: Long, endSec: Long, cx: Float, done: (String) -> Unit) {
         val clipping = MediaItem.ClippingConfiguration.Builder()
